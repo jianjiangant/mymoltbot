@@ -1,0 +1,13 @@
+{
+  "name": "mymoltbot",
+  "version": "1.0.0",
+  "description": "专注计时器与待办事项应用",
+  "main": "index.html",
+  "scripts": {
+    "start": "python3 -m http.server 18880",
+    "dev": "python3 -m http.server 18880"
+  },
+  "keywords": ["vue", "productivity", "timer", "todo"],
+  "author": "Clawdbot",
+  "license": "MIT"
+}

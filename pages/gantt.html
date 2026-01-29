@@ -1,0 +1,856 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>甘特图 - MyMoltBot</title>
+  <script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns/dist/chartjs-adapter-date-fns.bundle.min.js"></script>
+  <link rel="stylesheet" href="../src/styles/gantt.css">
+</head>
+<body>
+  <div id="app">
+    <div class="container">
+      <div class="header">
+        <h1>📊 甘特图</h1>
+        <p>可视化管理待办事项时间关系</p>
+        <a href="../index.html" class="back-link">← 返回主页</a>
+      </div>
+      
+      <div class="controls">
+        <button @click="showAddModal = true" class="add-task-btn">➕ 添加任务</button>
+        <div class="view-controls">
+          <label>视图范围：</label>
+          <select v-model="viewRange" @change="updateChart" class="range-select">
+            <option value="week">本周</option>
+            <option value="month">本月</option>
+            <option value="quarter">季度</option>
+          </select>
+        </div>
+      </div>
+      
+      <div class="gantt-container">
+        <div class="gantt-chart" ref="ganttChart">
+          <!-- 悬停效果和拖拽手柄将动态添加到这里 -->
+        </div>
+      </div>
+      
+      <div class="tasks-list">
+        <h3>任务列表</h3>
+        <div class="task-item" v-for="task in tasks" :key="task.id">
+          <div class="task-info">
+            <strong>{{ task.title }}</strong>
+            <div class="task-dates">{{ formatDate(task.startDate) }} - {{ formatDate(task.endDate) }}</div>
+            <div class="task-progress">进度: {{ task.progress }}%</div>
+          </div>
+          <div class="task-actions">
+            <button @click="editTask(task)" class="edit-btn">编辑</button>
+            <button @click="prepareDeleteTask(task)" class="delete-btn">删除</button>
+          </div>
+        </div>
+      </div>
+    </div>
+    
+    <!-- 添加/编辑任务模态框 -->
+    <div v-if="showAddModal" class="modal-overlay" @click="showAddModal = false">
+      <div class="modal-content" @click.stop>
+        <h3>{{ editingTask ? '编辑任务' : '添加任务' }}</h3>
+        <form @submit.prevent="saveTask">
+          <div class="form-group">
+            <label>任务名称:</label>
+            <input 
+              v-model="currentTask.title" 
+              type="text" 
+              class="form-input" 
+              required
+            />
+          </div>
+          <div class="form-row">
+            <div class="form-group">
+              <label>开始日期:</label>
+              <input 
+                v-model="currentTask.startDate" 
+                type="datetime-local" 
+                class="form-input" 
+                required
+              />
+            </div>
+            <div class="form-group">
+              <label>结束日期:</label>
+              <input 
+                v-model="currentTask.endDate" 
+                type="datetime-local" 
+                class="form-input" 
+                required
+              />
+            </div>
+          </div>
+          <div class="form-group">
+            <label>进度 (%):</label>
+            <input 
+              v-model.number="currentTask.progress" 
+              type="range" 
+              min="0" 
+              max="100" 
+              class="progress-slider"
+            />
+            <span class="progress-value">{{ currentTask.progress }}%</span>
+          </div>
+          <div class="form-actions">
+            <button type="submit" class="save-btn">保存</button>
+            <button type="button" @click="cancelEdit" class="cancel-btn">取消</button>
+          </div>
+        </form>
+      </div>
+    </div>
+    
+    <!-- 删除确认模态框 -->
+    <div v-if="showDeleteModal" class="modal-overlay" @click="showDeleteModal = false">
+      <div class="modal-content" @click.stop>
+        <h3>确认删除</h3>
+        <p>您确定要删除任务 "{{ taskToDelete?.title }}" 吗？此操作无法撤销。</p>
+        <div class="form-actions">
+          <button @click="confirmDelete" class="save-btn danger">删除</button>
+          <button @click="cancelDelete" class="cancel-btn">取消</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    // 等待页面完全加载后再执行
+    document.addEventListener('DOMContentLoaded', function() {
+      if (typeof Vue === 'undefined') {
+        console.error('Vue is not loaded');
+        return;
+      }
+      
+      const { createApp, ref, onMounted, onUnmounted, reactive, watch } = Vue;
+      
+      createApp({
+        setup() {
+          // 任务数据
+          const tasks = ref(JSON.parse(localStorage.getItem('ganttTasks')) || []);
+          const showAddModal = ref(false);
+          const showDeleteModal = ref(false);
+          const editingTask = ref(null);
+          const taskToDelete = ref(null);
+          const viewRange = ref('month');
+          const ganttChart = ref(null);
+          let chartInstance = null;
+          
+          // 拖拽相关元素
+          let hoverOverlay = null;
+          let leftHandle = null;
+          let rightHandle = null;
+          let isUpdating = false; // 防止更新过程中的冲突
+          
+          // 保存到本地存储
+          const saveToLocalStorage = () => {
+            localStorage.setItem('ganttTasks', JSON.stringify(tasks.value));
+          };
+          
+          // 当前任务对象（用于表单）
+          const currentTask = reactive({
+            title: '',
+            startDate: '',
+            endDate: '',
+            progress: 0
+          });
+
+          // 初始化默认数据（如果没有数据）
+          if (tasks.value.length === 0) {
+            tasks.value = [
+              {
+                id: 1,
+                title: '项目规划',
+                startDate: new Date(Date.now() - 3 * 24 * 60 * 60 * 1000).toISOString().slice(0, 16),
+                endDate: new Date(Date.now() + 2 * 24 * 60 * 60 * 1000).toISOString().slice(0, 16),
+                progress: 60
+              },
+              {
+                id: 2,
+                title: '需求分析',
+                startDate: new Date(Date.now() - 2 * 24 * 60 * 60 * 1000).toISOString().slice(0, 16),
+                endDate: new Date(Date.now() + 4 * 24 * 60 * 60 * 1000).toISOString().slice(0, 16),
+                progress: 30
+              },
+              {
+                id: 3,
+                title: '开发阶段',
+                startDate: new Date(Date.now()).toISOString().slice(0, 16),
+                endDate: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString().slice(0, 16),
+                progress: 0
+              },
+              {
+                id: 4,
+                title: '测试阶段',
+                startDate: new Date(Date.now() + 6 * 24 * 60 * 60 * 1000).toISOString().slice(0, 16),
+                endDate: new Date(Date.now() + 10 * 24 * 60 * 60 * 1000).toISOString().slice(0, 16),
+                progress: 0
+              }
+            ];
+            saveToLocalStorage();
+          }
+
+          // 添加或编辑任务
+          const saveTask = () => {
+            if (!currentTask.title || !currentTask.startDate || !currentTask.endDate) {
+              alert('请填写所有必填字段');
+              return;
+            }
+            
+            if (new Date(currentTask.startDate) > new Date(currentTask.endDate)) {
+              alert('结束日期不能早于开始日期');
+              return;
+            }
+            
+            if (editingTask.value) {
+              // 编辑现有任务
+              const index = tasks.value.findIndex(t => t.id === editingTask.value.id);
+              if (index !== -1) {
+                tasks.value[index] = { ...currentTask, id: editingTask.value.id };
+              }
+            } else {
+              // 添加新任务
+              const newId = tasks.value.length > 0 ? Math.max(...tasks.value.map(t => t.id)) + 1 : 1;
+              tasks.value.push({ ...currentTask, id: newId });
+            }
+            
+            saveToLocalStorage();
+            resetForm();
+            updateChart();
+          };
+
+          // 编辑任务
+          const editTask = (task) => {
+            Object.assign(currentTask, task);
+            editingTask.value = { ...task };
+            showAddModal.value = true;
+          };
+
+          // 准备删除任务（显示确认模态框）
+          const prepareDeleteTask = (task) => {
+            taskToDelete.value = task;
+            showDeleteModal.value = true;
+          };
+
+          // 确认删除任务
+          const confirmDelete = () => {
+            if (taskToDelete.value) {
+              tasks.value = tasks.value.filter(task => task.id !== taskToDelete.value.id);
+              saveToLocalStorage();
+              updateChart();
+            }
+            showDeleteModal.value = false;
+            taskToDelete.value = null;
+          };
+
+          // 取消删除
+          const cancelDelete = () => {
+            showDeleteModal.value = false;
+            taskToDelete.value = null;
+          };
+
+          // 取消编辑
+          const cancelEdit = () => {
+            showAddModal.value = false;
+            resetForm();
+          };
+
+          // 重置表单
+          const resetForm = () => {
+            currentTask.title = '';
+            currentTask.startDate = '';
+            currentTask.endDate = '';
+            currentTask.progress = 0;
+            editingTask.value = null;
+          };
+
+          // 格式化日期显示
+          const formatDate = (dateString) => {
+            return new Date(dateString).toLocaleDateString('zh-CN', {
+              year: 'numeric',
+              month: '2-digit',
+              day: '2-digit',
+              hour: '2-digit',
+              minute: '2-digit'
+            });
+          };
+
+          // 创建悬停效果和拖拽手柄元素
+          const createOverlayElements = () => {
+            // 创建悬停覆盖层
+            hoverOverlay = document.createElement('div');
+            hoverOverlay.style.position = 'absolute';
+            hoverOverlay.style.border = '2px solid white';
+            hoverOverlay.style.boxShadow = '0 0 0 2px rgba(255,255,255,0.5)';
+            hoverOverlay.style.pointerEvents = 'none';
+            hoverOverlay.style.zIndex = '5';
+            hoverOverlay.style.display = 'none';
+            hoverOverlay.style.borderRadius = '4px';
+            
+            // 创建左拖拽手柄
+            leftHandle = document.createElement('div');
+            leftHandle.className = 'drag-handle-left';
+            leftHandle.style.position = 'absolute';
+            leftHandle.style.width = '8px';
+            leftHandle.style.height = '100%';
+            leftHandle.style.top = '0';
+            leftHandle.style.cursor = 'ew-resize';
+            leftHandle.style.pointerEvents = 'auto';
+            leftHandle.style.display = 'none';
+            leftHandle.style.zIndex = '10';
+            leftHandle.style.borderRadius = '2px';
+            
+            // 创建右拖拽手柄
+            rightHandle = document.createElement('div');
+            rightHandle.className = 'drag-handle-right';
+            rightHandle.style.position = 'absolute';
+            rightHandle.style.width = '8px';
+            rightHandle.style.height = '100%';
+            rightHandle.style.top = '0';
+            rightHandle.style.cursor = 'ew-resize';
+            rightHandle.style.pointerEvents = 'auto';
+            rightHandle.style.display = 'none';
+            rightHandle.style.zIndex = '10';
+            rightHandle.style.borderRadius = '2px';
+            
+            // 添加到图表容器
+            if (ganttChart.value) {
+              ganttChart.value.appendChild(hoverOverlay);
+              ganttChart.value.appendChild(leftHandle);
+              ganttChart.value.appendChild(rightHandle);
+            }
+          };
+
+          // 更新图表
+          const updateChart = () => {
+            if (isUpdating) return; // 防止并发更新
+            isUpdating = true;
+            
+            if (chartInstance) {
+              chartInstance.destroy();
+            }
+            
+            if (tasks.value.length === 0) {
+              isUpdating = false;
+              return;
+            }
+            
+            // 准备图表数据
+            const chartData = tasks.value.map(task => ({
+              x: [new Date(task.startDate), new Date(task.endDate)],
+              y: task.title,
+              progress: task.progress,
+              id: task.id
+            }));
+            
+            // 创建甘特图
+            const ctx = document.createElement('canvas');
+            if (ganttChart.value) {
+              // 清空容器但保留覆盖层元素
+              const children = Array.from(ganttChart.value.children);
+              children.forEach(child => {
+                if (child !== hoverOverlay && child !== leftHandle && child !== rightHandle) {
+                  ganttChart.value.removeChild(child);
+                }
+              });
+              
+              ganttChart.value.appendChild(ctx);
+              
+              chartInstance = new Chart(ctx, {
+                type: 'bar',
+                data: {
+                  labels: tasks.value.map(task => task.title),
+                  datasets: [{
+                    label: '任务时间线',
+                    data: chartData,
+                    backgroundColor: function(context) {
+                      const progress = context.dataset.data[context.dataIndex].progress;
+                      // 根据进度返回不同颜色
+                      if (progress >= 80) return 'rgba(40, 167, 69, 0.7)'; // 绿色 - 完成度高
+                      if (progress >= 50) return 'rgba(0, 123, 255, 0.7)'; // 蓝色 - 进行中
+                      if (progress > 0) return 'rgba(255, 193, 7, 0.7)';  // 黄色 - 刚开始
+                      return 'rgba(220, 53, 69, 0.7)'; // 红色 - 未开始
+                    },
+                    borderColor: function(context) {
+                      const progress = context.dataset.data[context.dataIndex].progress;
+                      if (progress >= 80) return 'rgb(40, 167, 69)';
+                      if (progress >= 50) return 'rgb(0, 123, 255)';
+                      if (progress > 0) return 'rgb(255, 193, 7)';
+                      return 'rgb(220, 53, 69)';
+                    },
+                    borderWidth: 1,
+                    borderSkipped: false,
+                    borderRadius: 5,
+                    // 固定条形高度
+                    barPercentage: 0.6,
+                    categoryPercentage: 0.8,
+                    // 显示进度条覆盖在任务条上
+                    datalabels: {
+                      align: 'center',
+                      anchor: 'center',
+                      formatter: function(value, context) {
+                        const progress = context.dataset.data[context.dataIndex].progress;
+                        return progress + '%';
+                      },
+                      color: '#fff',
+                      font: {
+                        weight: 'bold'
+                      }
+                    }
+                  }]
+                },
+                options: {
+                  indexAxis: 'y',
+                  responsive: true,
+                  maintainAspectRatio: false,
+                  scales: {
+                    x: {
+                      type: 'time',
+                      time: {
+                        unit: viewRange.value === 'week' ? 'day' : 
+                             viewRange.value === 'month' ? 'day' : 'week',
+                        tooltipFormat: 'yyyy-MM-dd HH:mm'
+                      },
+                      min: new Date(Date.now() - (viewRange.value === 'week' ? 7 : viewRange.value === 'month' ? 30 : 90) * 24 * 60 * 60 * 1000),
+                      max: new Date(Date.now() + (viewRange.value === 'week' ? 14 : viewRange.value === 'month' ? 30 : 90) * 24 * 60 * 60 * 1000),
+                      title: {
+                        display: true,
+                        text: '时间轴'
+                      }
+                    },
+                    y: {
+                      title: {
+                        display: true,
+                        text: '任务'
+                      },
+                      // 确保任务条垂直居中
+                      offset: true,
+                      ticks: {
+                        font: {
+                          size: 14
+                        }
+                      },
+                      grid: {
+                        display: true,
+                        color: 'rgba(0, 0, 0, 0.1)'
+                      }
+                    }
+                  },
+                  plugins: {
+                    legend: {
+                      display: false
+                    },
+                    tooltip: {
+                      callbacks: {
+                        label: function(context) {
+                          const task = tasks.value[context.dataIndex];
+                          return [
+                            `任务: ${task.title}`,
+                            `开始: ${formatDate(task.startDate)}`,
+                            `结束: ${formatDate(task.endDate)}`,
+                            `进度: ${task.progress}%`
+                          ];
+                        }
+                      }
+                    }
+                  },
+                  animation: {
+                    duration: 300
+                  },
+                  // 启用拖拽功能
+                  onClick: (event, elements) => {
+                    // 不在这里处理点击事件，改为在canvas事件监听器中处理
+                  }
+                }
+              });
+              
+              // 添加拖拽调整时间范围的功能
+              setupDragFunctionality(ctx, chartInstance);
+            }
+            
+            isUpdating = false;
+          };
+
+          // 拖拽功能实现
+          const setupDragFunctionality = (canvas, chart) => {
+            let isDragging = false;
+            let dragStartX = 0;
+            let originalStartDate, originalEndDate;
+            let taskIndex = -1;
+            let dragType = ''; // 'left', 'right', or 'move'
+
+            // 获取鼠标位置
+            const getMousePos = (canvas, evt) => {
+              const rect = canvas.getBoundingClientRect();
+              return {
+                x: evt.clientX - rect.left,
+                y: evt.clientY - rect.top
+              };
+            };
+
+            // 获取任务条边界信息 - 使用更精确的方法
+            const getTaskBounds = () => {
+              const bounds = [];
+              
+              // 遍历所有任务，根据图表的x轴时间范围计算每个任务在画布上的实际位置
+              const timeScale = chart.scales.x;
+              const yScale = chart.scales.y;
+              
+              for (let i = 0; i < tasks.value.length; i++) {
+                const task = tasks.value[i];
+                
+                // 将日期转换为像素坐标
+                const startX = timeScale.getPixelForValue(new Date(task.startDate));
+                const endX = timeScale.getPixelForValue(new Date(task.endDate));
+                
+                // 获取Y轴坐标
+                const yValue = task.title; // 使用任务标题作为Y轴值
+                const y = yScale.getPixelForValue(yValue);
+                
+                // 计算条形图的高度和位置
+                const barHeight = chart.options.scales.y.ticks.fontSize || 12;
+                const height = barHeight * 3; // 增加高度以便于点击
+                const top = y - height/2;
+                const bottom = y + height/2;
+                
+                bounds.push({
+                  index: i,
+                  left: startX,
+                  right: endX,
+                  top: top,
+                  bottom: bottom,
+                  center: y,
+                  width: endX - startX,
+                  height: height
+                });
+              }
+              
+              return bounds;
+            };
+
+            // 查找鼠标位置对应的任务及边缘
+            const findTaskAtPosition = (mouseX, mouseY) => {
+              const bounds = getTaskBounds();
+              
+              for (let i = 0; i < bounds.length; i++) {
+                const bound = bounds[i];
+                
+                // 检查鼠标是否在任务条垂直范围内
+                if (mouseY >= bound.top && mouseY <= bound.bottom) {
+                  // 检查是否在任务条水平范围内
+                  if (mouseX >= bound.left && mouseX <= bound.right) {
+                    // 检查是否在左边缘（20像素范围内）
+                    if (Math.abs(mouseX - bound.left) <= 20) {
+                      return { index: i, side: 'left' };
+                    }
+                    // 检查是否在右边缘（20像素范围内）
+                    else if (Math.abs(mouseX - bound.right) <= 20) {
+                      return { index: i, side: 'right' };
+                    }
+                    // 在中间区域
+                    else {
+                      return { index: i, side: 'middle' };
+                    }
+                  }
+                }
+              }
+              return null;
+            };
+            
+            // 处理Canvas点击事件（编辑任务）
+            const handleCanvasClick = (event) => {
+              const mousePos = getMousePos(canvas, event);
+              const taskInfo = findTaskAtPosition(mousePos.x, mousePos.y);
+              
+              if (taskInfo && taskInfo.side === 'middle') { // 只有在中间区域点击才触发编辑
+                const clickedTask = tasks.value[taskInfo.index];
+                if (clickedTask) {
+                  editTask(clickedTask);
+                }
+              }
+            };
+
+            // 存储上一个任务信息，用于比较是否需要更新
+            let prevTaskInfo = null;
+            
+            // 更新悬停效果
+            const updateHoverEffect = (mouseX, mouseY) => {
+              const taskInfo = findTaskAtPosition(mouseX, mouseY);
+              
+              // 只有当任务发生变化时才更新，避免频繁更新造成闪烁
+              if (JSON.stringify(taskInfo) !== JSON.stringify(prevTaskInfo)) {
+                prevTaskInfo = taskInfo ? {...taskInfo} : null;
+                
+                if (taskInfo) {
+                  const bounds = getTaskBounds();
+                  const bound = bounds[taskInfo.index];
+                  
+                  // 设置悬停覆盖层的位置和大小
+                  if (hoverOverlay) {
+                    hoverOverlay.style.left = bound.left + 'px';
+                    hoverOverlay.style.top = bound.top + 'px';
+                    hoverOverlay.style.width = bound.width + 'px';
+                    hoverOverlay.style.height = bound.height + 'px';
+                    hoverOverlay.style.display = 'block';
+                    
+                    // 根据任务进度设置边框颜色
+                    const task = tasks.value[taskInfo.index];
+                    const progress = task.progress;
+                    if (progress >= 80) {
+                      hoverOverlay.style.borderColor = 'rgb(40, 167, 69)';
+                      hoverOverlay.style.boxShadow = '0 0 0 2px rgba(40, 167, 69, 0.5)';
+                    } else if (progress >= 50) {
+                      hoverOverlay.style.borderColor = 'rgb(0, 123, 255)';
+                      hoverOverlay.style.boxShadow = '0 0 0 2px rgba(0, 123, 255, 0.5)';
+                    } else if (progress > 0) {
+                      hoverOverlay.style.borderColor = 'rgb(255, 193, 7)';
+                      hoverOverlay.style.boxShadow = '0 0 0 2px rgba(255, 193, 7, 0.5)';
+                    } else {
+                      hoverOverlay.style.borderColor = 'white';
+                      hoverOverlay.style.boxShadow = '0 0 0 2px rgba(255,255,255,0.5)';
+                    }
+                  }
+                  
+                  // 设置拖拽手柄的位置
+                  if (leftHandle && rightHandle) {
+                    leftHandle.style.left = bound.left + 'px';
+                    leftHandle.style.top = bound.top + 'px';
+                    leftHandle.style.height = bound.height + 'px';
+                    leftHandle.style.display = 'block';
+                    
+                    rightHandle.style.left = (bound.right - 8) + 'px';
+                    rightHandle.style.top = bound.top + 'px';
+                    rightHandle.style.height = bound.height + 'px';
+                    rightHandle.style.display = 'block';
+                    
+                    // 根据任务进度设置手柄颜色
+                    const task = tasks.value[taskInfo.index];
+                    const progress = task.progress;
+                    if (progress >= 80) {
+                      leftHandle.style.background = 'repeating-linear-gradient(45deg, transparent, transparent 4px, rgba(40, 167, 69, 0.8) 4px, rgba(40, 167, 69, 0.8) 6px)';
+                      rightHandle.style.background = 'repeating-linear-gradient(45deg, transparent, transparent 4px, rgba(40, 167, 69, 0.8) 4px, rgba(40, 167, 69, 0.8) 6px)';
+                    } else if (progress >= 50) {
+                      leftHandle.style.background = 'repeating-linear-gradient(45deg, transparent, transparent 4px, rgba(0, 123, 255, 0.8) 4px, rgba(0, 123, 255, 0.8) 6px)';
+                      rightHandle.style.background = 'repeating-linear-gradient(45deg, transparent, transparent 4px, rgba(0, 123, 255, 0.8) 4px, rgba(0, 123, 255, 0.8) 6px)';
+                    } else if (progress > 0) {
+                      leftHandle.style.background = 'repeating-linear-gradient(45deg, transparent, transparent 4px, rgba(255, 193, 7, 0.8) 4px, rgba(255, 193, 7, 0.8) 6px)';
+                      rightHandle.style.background = 'repeating-linear-gradient(45deg, transparent, transparent 4px, rgba(255, 193, 7, 0.8) 4px, rgba(255, 193, 7, 0.8) 6px)';
+                    } else {
+                      leftHandle.style.background = 'repeating-linear-gradient(45deg, transparent, transparent 4px, rgba(255, 255, 255, 0.8) 4px, rgba(255, 255, 255, 0.8) 6px)';
+                      rightHandle.style.background = 'repeating-linear-gradient(45deg, transparent, transparent 4px, rgba(255, 255, 255, 0.8) 4px, rgba(255, 255, 255, 0.8) 6px)';
+                    }
+                  }
+                  
+                  canvas.style.cursor = taskInfo.side === 'left' || taskInfo.side === 'right' ? 'ew-resize' : 'pointer';
+                } else {
+                  // 隐藏悬停效果
+                  if (hoverOverlay) hoverOverlay.style.display = 'none';
+                  if (leftHandle) leftHandle.style.display = 'none';
+                  if (rightHandle) rightHandle.style.display = 'none';
+                  canvas.style.cursor = 'default';
+                }
+              }
+            };
+
+            // 鼠标按下事件
+            canvas.addEventListener('mousedown', (e) => {
+              const mousePos = getMousePos(canvas, e);
+              const taskInfo = findTaskAtPosition(mousePos.x, mousePos.y);
+              
+              if (taskInfo) {
+                isDragging = true;
+                dragStartX = mousePos.x;
+                taskIndex = taskInfo.index;
+                dragType = taskInfo.side;
+                
+                const task = tasks.value[taskIndex];
+                originalStartDate = new Date(task.startDate);
+                originalEndDate = new Date(task.endDate);
+                
+                // 改变鼠标指针
+                canvas.style.cursor = dragType === 'left' || dragType === 'right' ? 'ew-resize' : 'grabbing';
+              }
+            });
+
+            let dragAnimationFrame = null;
+            
+            // 鼠标移动事件
+            canvas.addEventListener('mousemove', (e) => {
+              const mousePos = getMousePos(canvas, e);
+              
+              if (!isDragging) {
+                updateHoverEffect(mousePos.x, mousePos.y);
+                return;
+              }
+
+              // 在拖拽过程中，使用requestAnimationFrame来优化更新频率
+              if (dragAnimationFrame) {
+                cancelAnimationFrame(dragAnimationFrame);
+              }
+              
+              dragAnimationFrame = requestAnimationFrame(() => {
+                const deltaX = mousePos.x - dragStartX;
+
+                // 根据图表比例计算时间变化
+                const timeScale = chart.scales.x;
+                const chartArea = chart.chartArea;
+                
+                // 获取时间范围对应的像素范围
+                const startDate = new Date(timeScale.min);
+                const endDate = new Date(timeScale.max);
+                const totalTimeRange = endDate - startDate;
+                const pixelRange = chartArea.right - chartArea.left;
+                const msPerPixel = totalTimeRange / pixelRange;
+
+                // 计算时间变化量
+                const timeChange = Math.round(deltaX * msPerPixel);
+
+                // 根据拖拽类型更新任务时间
+                let newStartDate = originalStartDate;
+                let newEndDate = originalEndDate;
+                
+                if (dragType === 'left') {
+                  // 调整开始时间，结束时间保持不变
+                  newStartDate = new Date(originalStartDate.getTime() + timeChange);
+                  // 确保开始时间不晚于结束时间
+                  if (newStartDate < originalEndDate) {
+                    tasks.value[taskIndex].startDate = newStartDate.toISOString().slice(0, 16);
+                  } else {
+                    // 如果开始时间晚于结束时间，则恢复原值
+                    newStartDate = originalStartDate;
+                  }
+                } else if (dragType === 'right') {
+                  // 调整结束时间，开始时间保持不变
+                  newEndDate = new Date(originalEndDate.getTime() + timeChange);
+                  // 确保结束时间不早于开始时间
+                  if (newEndDate > originalStartDate) {
+                    tasks.value[taskIndex].endDate = newEndDate.toISOString().slice(0, 16);
+                  } else {
+                    // 如果结束时间早于开始时间，则恢复原值
+                    newEndDate = originalEndDate;
+                  }
+                } else if (dragType === 'middle') {
+                  // 移动整个任务
+                  newStartDate = new Date(originalStartDate.getTime() + timeChange);
+                  newEndDate = new Date(originalEndDate.getTime() + timeChange);
+                  tasks.value[taskIndex].startDate = newStartDate.toISOString().slice(0, 16);
+                  tasks.value[taskIndex].endDate = newEndDate.toISOString().slice(0, 16);
+                }
+
+                // 在拖拽过程中只更新图表中的数据点，而不是重新创建整个图表
+                if (chart.data.datasets && chart.data.datasets[0] && chart.data.datasets[0].data[taskIndex]) {
+                  // 更新图表中的数据点
+                  chart.data.datasets[0].data[taskIndex].x = [new Date(tasks.value[taskIndex].startDate), new Date(tasks.value[taskIndex].endDate)];
+                  chart.update('none'); // 使用无动画更新，避免闪烁
+                  
+                  // 在拖拽期间强制更新悬停效果，即使任务没变也要更新位置
+                  prevTaskInfo = null; // 清除缓存强制更新
+                  updateHoverEffect(mousePos.x, mousePos.y);
+                }
+              });
+            });
+
+            // 鼠标释放事件
+            canvas.addEventListener('mouseup', () => {
+              if (isDragging) {
+                isDragging = false;
+                taskIndex = -1;
+                dragType = '';
+                canvas.style.cursor = 'default';
+                
+                // 取消拖拽动画帧
+                if (dragAnimationFrame) {
+                  cancelAnimationFrame(dragAnimationFrame);
+                  dragAnimationFrame = null;
+                }
+                
+                // 在拖拽结束后才保存数据到本地存储
+                saveToLocalStorage();
+              }
+            });
+
+            // 处理Canvas点击事件（编辑任务）
+            canvas.addEventListener('click', handleCanvasClick);
+
+            // 鼠标离开画布事件
+            canvas.addEventListener('mouseleave', () => {
+              if (isDragging) {
+                isDragging = false;
+                taskIndex = -1;
+                dragType = '';
+                canvas.style.cursor = 'default';
+                
+                // 取消拖拽动画帧
+                if (dragAnimationFrame) {
+                  cancelAnimationFrame(dragAnimationFrame);
+                  dragAnimationFrame = null;
+                }
+                
+                // 在拖拽结束后才保存数据到本地存储
+                saveToLocalStorage();
+              }
+              
+              // 隐藏悬停效果
+              if (hoverOverlay) hoverOverlay.style.display = 'none';
+              if (leftHandle) leftHandle.style.display = 'none';
+              if (rightHandle) rightHandle.style.display = 'none';
+            });
+          };
+
+          // 监听视图范围变化
+          watch(viewRange, () => {
+            updateChart();
+          });
+
+          // 页面加载时初始化图表
+          onMounted(() => {
+            createOverlayElements();
+            updateChart();
+          });
+
+          // 组件卸载时销毁图表
+          onUnmounted(() => {
+            if (chartInstance) {
+              chartInstance.destroy();
+            }
+            
+            // 移除覆盖层元素
+            if (hoverOverlay && hoverOverlay.parentNode) {
+              hoverOverlay.parentNode.removeChild(hoverOverlay);
+            }
+            if (leftHandle && leftHandle.parentNode) {
+              leftHandle.parentNode.removeChild(leftHandle);
+            }
+            if (rightHandle && rightHandle.parentNode) {
+              rightHandle.parentNode.removeChild(rightHandle);
+            }
+          });
+
+          return {
+            tasks,
+            showAddModal,
+            showDeleteModal,
+            editingTask,
+            taskToDelete,
+            viewRange,
+            ganttChart,
+            currentTask,
+            saveTask,
+            editTask,
+            prepareDeleteTask,
+            confirmDelete,
+            cancelDelete,
+            cancelEdit,
+            formatDate,
+            updateChart
+          };
+        }
+      }).mount('#app');
+    });
+  </script>
+</body>
+</html>

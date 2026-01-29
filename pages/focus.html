@@ -1,0 +1,236 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>专注计时器 - MyMoltBot</title>
+  <script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
+  <link rel="stylesheet" href="../src/styles/focus.css">
+</head>
+<body>
+  <div id="app">
+    <div class="container">
+      <div class="header">
+        <h1>⏱️ 专注计时器</h1>
+        <p>专注当下，提升效率</p>
+        <a href="../index.html" class="back-link">← 返回主页</a>
+      </div>
+      
+      <div class="focus-section">
+        <div class="timer-display">{{ formattedTime }}</div>
+        <div class="timer-controls">
+          <button 
+            class="timer-btn start-btn" 
+            @click="startTimer" 
+            :disabled="isRunning"
+          >
+            {{ isRunning ? '正在运行...' : '开始专注' }}
+          </button>
+          <button 
+            class="timer-btn stop-btn" 
+            @click="stopTimer" 
+            :disabled="!isRunning"
+          >
+            停止专注
+          </button>
+          <button 
+            class="timer-btn reset-btn" 
+            @click="resetTimer"
+          >
+            重置
+          </button>
+        </div>
+        
+        <div v-if="showNameInput" class="focus-name-input-container">
+          <input 
+            type="text" 
+            v-model="focusName" 
+            placeholder="请输入这次专注的事情名称..." 
+            @keyup.enter="saveFocusSession"
+            ref="focusNameInput"
+            class="focus-name-input"
+          />
+          <button 
+            class="confirm-btn" 
+            @click="saveFocusSession"
+            :disabled="!focusName.trim()"
+          >
+            确认
+          </button>
+        </div>
+      </div>
+      
+      <div class="focus-history">
+        <h3 class="history-title">专注历史</h3>
+        <div v-if="focusSessions.length === 0" class="empty-state">
+          <p>暂无专注记录</p>
+        </div>
+        <div v-else class="sessions-list">
+          <div 
+            v-for="session in focusSessions" 
+            :key="session.id" 
+            class="focus-item completed"
+          >
+            <div class="focus-info">
+              <div class="focus-name">{{ session.name }}</div>
+              <div class="focus-duration">时长: {{ formatDuration(session.duration) }}</div>
+            </div>
+            <div class="focus-date">{{ formatDate(session.date) }}</div>
+            <button class="delete-btn" @click="deleteFocusSession(session.id)">×</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const { createApp, ref, onMounted, computed } = Vue;
+    
+    createApp({
+      setup() {
+        const isRunning = ref(false);
+        const startTime = ref(null);
+        const elapsedTime = ref(0);
+        const timerInterval = ref(null);
+        const showNameInput = ref(false);
+        const focusName = ref('');
+        const focusSessions = ref(JSON.parse(localStorage.getItem('focusSessions')) || []);
+        const focusNameInput = ref(null);
+
+        // 格式化时间显示
+        const formattedTime = computed(() => {
+          const totalSeconds = Math.floor(elapsedTime.value / 1000);
+          const hours = Math.floor(totalSeconds / 3600);
+          const minutes = Math.floor((totalSeconds % 3600) / 60);
+          const seconds = totalSeconds % 60;
+          
+          return [
+            String(hours).padStart(2, '0'),
+            String(minutes).padStart(2, '0'),
+            String(seconds).padStart(2, '0')
+          ].join(':');
+        });
+
+        // 启动计时器
+        const startTimer = () => {
+          if (isRunning.value) return;
+          
+          isRunning.value = true;
+          startTime.value = Date.now() - elapsedTime.value;
+          
+          timerInterval.value = setInterval(() => {
+            elapsedTime.value = Date.now() - startTime.value;
+          }, 1000);
+          
+          showNameInput.value = false;
+          focusName.value = '';
+        };
+
+        // 停止计时器
+        const stopTimer = () => {
+          if (!isRunning.value) return;
+          
+          isRunning.value = false;
+          clearInterval(timerInterval.value);
+          
+          showNameInput.value = true;
+          
+          // 自动聚焦到输入框
+          setTimeout(() => {
+            if (focusNameInput.value) {
+              focusNameInput.value.focus();
+            }
+          }, 100);
+        };
+
+        // 重置计时器
+        const resetTimer = () => {
+          isRunning.value = false;
+          clearInterval(timerInterval.value);
+          
+          elapsedTime.value = 0;
+          showNameInput.value = false;
+          focusName.value = '';
+        };
+
+        // 保存专注会话
+        const saveFocusSession = () => {
+          if (!focusName.value.trim()) {
+            alert('请输入专注的事情名称！');
+            return;
+          }
+          
+          const session = {
+            id: Date.now(),
+            name: focusName.value.trim(),
+            duration: elapsedTime.value,
+            date: new Date().toISOString()
+          };
+          
+          focusSessions.value.unshift(session);
+          saveToLocalStorage();
+          
+          // 重置计时器
+          resetTimer();
+        };
+
+        // 删除专注会话
+        const deleteFocusSession = (id) => {
+          focusSessions.value = focusSessions.value.filter(session => session.id !== id);
+          saveToLocalStorage();
+        };
+
+        // 保存到本地存储
+        const saveToLocalStorage = () => {
+          localStorage.setItem('focusSessions', JSON.stringify(focusSessions.value));
+        };
+
+        // 格式化时长显示
+        const formatDuration = (duration) => {
+          const totalSeconds = Math.floor(duration / 1000);
+          const hours = Math.floor(totalSeconds / 3600);
+          const minutes = Math.floor((totalSeconds % 3600) / 60);
+          const seconds = totalSeconds % 60;
+          
+          let result = '';
+          if (hours > 0) result += hours + '小时';
+          if (minutes > 0) result += minutes + '分钟';
+          result += seconds + '秒';
+          
+          return result;
+        };
+
+        // 格式化日期显示
+        const formatDate = (dateString) => {
+          return new Date(dateString).toLocaleString('zh-CN');
+        };
+
+        // 页面加载时恢复数据
+        onMounted(() => {
+          // 如果有正在进行的计时，恢复状态
+          const savedState = JSON.parse(localStorage.getItem('focusTimerState')) || {};
+          if (savedState.elapsedTime) {
+            elapsedTime.value = savedState.elapsedTime;
+          }
+        });
+
+        return {
+          isRunning,
+          formattedTime,
+          showNameInput,
+          focusName,
+          focusSessions,
+          focusNameInput,
+          startTimer,
+          stopTimer,
+          resetTimer,
+          saveFocusSession,
+          deleteFocusSession,
+          formatDuration,
+          formatDate
+        };
+      }
+    }).mount('#app');
+  </script>
+</body>
+</html>

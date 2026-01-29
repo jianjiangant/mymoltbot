@@ -1,0 +1,103 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>MyMoltBot - 专注计时器与待办事项</title>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    body {
+      font-family: 'Arial', sans-serif;
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      min-height: 100vh;
+      padding: 20px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .container {
+      max-width: 600px;
+      width: 100%;
+      background: white;
+      border-radius: 15px;
+      box-shadow: 0 20px 40px rgba(0,0,0,0.1);
+      overflow: hidden;
+      text-align: center;
+    }
+
+    .header {
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      color: white;
+      padding: 40px 20px;
+    }
+
+    .header h1 {
+      font-size: 2.5em;
+      margin-bottom: 10px;
+    }
+
+    .header p {
+      opacity: 0.9;
+      font-size: 1.1em;
+    }
+
+    .nav-buttons {
+      padding: 40px;
+    }
+
+    .nav-button {
+      display: block;
+      width: 100%;
+      max-width: 300px;
+      margin: 20px auto;
+      padding: 20px;
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      color: white;
+      border: none;
+      border-radius: 10px;
+      font-size: 1.2em;
+      font-weight: bold;
+      cursor: pointer;
+      text-decoration: none;
+      transition: transform 0.3s, box-shadow 0.3s;
+    }
+
+    .nav-button:hover {
+      transform: translateY(-5px);
+      box-shadow: 0 10px 20px rgba(0,0,0,0.2);
+    }
+
+    .focus-btn {
+      background: linear-gradient(135deg, #52c41a 0%, #389e0d 100%);
+    }
+
+    .todo-btn {
+      background: linear-gradient(135deg, #1890ff 0%, #096dd9 100%);
+    }
+
+    .gantt-btn {
+      background: linear-gradient(135deg, #fa8c16 0%, #fa541c 100%);
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="header">
+      <h1>🤖 MyMoltBot</h1>
+      <p>专注计时器与待办事项管理系统</p>
+    </div>
+    
+    <div class="nav-buttons">
+      <a href="./pages/focus.html" class="nav-button focus-btn">⏱️ 专注计时器</a>
+      <a href="./pages/todo.html" class="nav-button todo-btn">📝 待办事项</a>
+      <a href="./pages/gantt.html" class="nav-button gantt-btn">📊 甘特图</a>
+    </div>
+  </div>
+</body>
+</html>

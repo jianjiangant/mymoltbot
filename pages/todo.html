@@ -1,0 +1,179 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>待办事项 - MyMoltBot</title>
+  <script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
+  <link rel="stylesheet" href="../src/styles/todo.css">
+</head>
+<body>
+  <div id="app">
+    <div class="container">
+      <div class="header">
+        <h1>📝 待办事项清单</h1>
+        <p>记录你的每日任务，提高工作效率</p>
+        <a href="../index.html" class="back-link">← 返回主页</a>
+      </div>
+      
+      <div class="input-section">
+        <div class="input-group">
+          <input 
+            type="text" 
+            v-model="newTodo" 
+            placeholder="请输入新的待办事项..." 
+            @keyup.enter="addTodo"
+            class="todo-input"
+          />
+          <button @click="addTodo" class="add-btn">添加任务</button>
+        </div>
+      </div>
+      
+      <div class="filters">
+        <button 
+          v-for="filter in filters" 
+          :key="filter.key"
+          @click="setFilter(filter.key)"
+          :class="['filter-btn', { active: currentFilter === filter.key }]"
+        >
+          {{ filter.label }}
+        </button>
+      </div>
+      
+      <div class="todo-list">
+        <div v-if="filteredTodos.length === 0" class="empty-state">
+          <div>📋</div>
+          <p>{{ emptyStateMessage }}</p>
+        </div>
+        <div 
+          v-for="todo in filteredTodos" 
+          :key="todo.id" 
+          :class="['todo-item', { completed: todo.completed }]"
+        >
+          <input 
+            type="checkbox" 
+            v-model="todo.completed" 
+            @change="updateTodo(todo)" 
+            class="todo-checkbox"
+          />
+          <div class="todo-text">{{ todo.text }}</div>
+          <button @click="deleteTodo(todo.id)" class="delete-btn">×</button>
+        </div>
+      </div>
+      
+      <div class="stats">
+        <span>总计: {{ todos.length }} 项</span>
+        <span>已完成: {{ completedCount }} 项</span>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const { createApp, ref, computed, onMounted } = Vue;
+    
+    createApp({
+      setup() {
+        const newTodo = ref('');
+        const todos = ref(JSON.parse(localStorage.getItem('todos')) || []);
+        const currentFilter = ref('all');
+        const filters = [
+          { key: 'all', label: '全部' },
+          { key: 'active', label: '待完成' },
+          { key: 'completed', label: '已完成' }
+        ];
+
+        // 根据当前过滤条件筛选待办事项
+        const filteredTodos = computed(() => {
+          switch(currentFilter.value) {
+            case 'active':
+              return todos.value.filter(todo => !todo.completed);
+            case 'completed':
+              return todos.value.filter(todo => todo.completed);
+            default:
+              return [...todos.value];
+          }
+        });
+
+        // 计算已完成的数量
+        const completedCount = computed(() => {
+          return todos.value.filter(todo => todo.completed).length;
+        });
+
+        // 空状态提示信息
+        const emptyStateMessage = computed(() => {
+          switch(currentFilter.value) {
+            case 'active':
+              return '暂无待完成事项，添加一个新的任务开始吧！';
+            case 'completed':
+              return '暂无已完成事项，继续努力！';
+            default:
+              return '暂无待办事项，添加一个新的任务开始吧！';
+          }
+        });
+
+        // 添加待办事项
+        const addTodo = () => {
+          const text = newTodo.value.trim();
+          if (text === '') {
+            alert('请输入待办事项内容！');
+            return;
+          }
+          
+          const newTodoItem = {
+            id: Date.now(),
+            text: text,
+            completed: false,
+            createdAt: new Date().toISOString()
+          };
+          
+          todos.value.push(newTodoItem);
+          saveToLocalStorage();
+          
+          // 清空输入框
+          newTodo.value = '';
+        };
+
+        // 更新待办事项状态
+        const updateTodo = (todo) => {
+          saveToLocalStorage();
+        };
+
+        // 删除待办事项
+        const deleteTodo = (id) => {
+          todos.value = todos.value.filter(todo => todo.id !== id);
+          saveToLocalStorage();
+        };
+
+        // 设置过滤器
+        const setFilter = (filter) => {
+          currentFilter.value = filter;
+        };
+
+        // 保存到本地存储
+        const saveToLocalStorage = () => {
+          localStorage.setItem('todos', JSON.stringify(todos.value));
+        };
+
+        // 页面加载时恢复数据
+        onMounted(() => {
+          // 数据已从localStorage恢复到todos响应式变量
+        });
+
+        return {
+          newTodo,
+          todos,
+          filteredTodos,
+          currentFilter,
+          filters,
+          completedCount,
+          emptyStateMessage,
+          addTodo,
+          updateTodo,
+          deleteTodo,
+          setFilter
+        };
+      }
+    }).mount('#app');
+  </script>
+</body>
+</html>
