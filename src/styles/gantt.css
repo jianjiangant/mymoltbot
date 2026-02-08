@@ -292,6 +292,232 @@ body {
 /* 甘特图任务条悬停效果 */
 .gantt-chart canvas {
   cursor: default;
+  position: relative;
+  z-index: 1;
+}
+
+/* 确保图表容器有相对定位 */
+.gantt-chart {
+  position: relative;
+  overflow: visible;
+}
+
+/* 甘特图容器 */
+.gantt-container {
+  position: relative;
+  overflow: auto;
+  border: 1px solid #ddd;
+  border-radius: 8px;
+  background: white;
+}
+
+/* 甘特图头部 */
+.gantt-header {
+  display: flex;
+  background: #f8f9fa;
+  border-bottom: 1px solid #dee2e6;
+  position: sticky;
+  top: 0;
+  z-index: 100;
+}
+
+.task-name-column {
+  width: 200px;
+  padding: 10px;
+  font-weight: bold;
+  background: #e9ecef;
+  border-right: 1px solid #dee2e6;
+  flex-shrink: 0;
+}
+
+.timeline-header {
+  display: flex;
+  overflow-x: auto;
+  scrollbar-width: none; /* Firefox */
+  -ms-overflow-style: none; /* IE/Edge */
+}
+
+.timeline-header::-webkit-scrollbar {
+  display: none; /* Chrome/Safari/Opera */
+}
+
+.time-slot {
+  min-width: 60px;
+  padding: 10px 5px;
+  text-align: center;
+  border-left: 1px solid #dee2e6;
+  font-size: 0.8em;
+  color: #6c757d;
+}
+
+/* 甘特图主体 */
+.gantt-body {
+  overflow-x: auto;
+  overflow-y: auto;
+  max-height: 500px;
+}
+
+.task-rows {
+  position: relative;
+}
+
+.gantt-row {
+  display: flex;
+  height: 50px;
+  border-bottom: 1px solid #f1f1f1;
+  align-items: center;
+}
+
+.task-name {
+  width: 200px;
+  padding: 0 10px;
+  border-right: 1px solid #dee2e6;
+  flex-shrink: 0;
+  font-size: 0.9em;
+}
+
+.gantt-chart-area {
+  position: relative;
+  flex: 1;
+  height: 100%;
+  min-width: 800px; /* 确保有足够宽度 */
+}
+
+/* 任务条样式 */
+.gantt-bar {
+  position: absolute;
+  height: 40px;
+  border-radius: 4px;
+  display: flex;
+  align-items: center;
+  padding-left: 8px;
+  cursor: move;
+  user-select: none;
+  box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+  transition: all 0.2s ease;
+  z-index: 10;
+}
+
+.gantt-bar:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 8px rgba(0,0,0,0.15);
+}
+
+/* 任务条标签 */
+.gantt-bar-label {
+  color: white;
+  font-size: 0.8em;
+  font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100%;
+}
+
+/* 拖拽手柄 */
+.gantt-bar-handle-left, .gantt-bar-handle-right {
+  position: absolute;
+  width: 8px;
+  height: 100%;
+  top: 0;
+  cursor: ew-resize;
+  border-radius: 2px;
+  z-index: 20;
+}
+
+.gantt-bar-handle-left {
+  left: 0;
+  border-top-left-radius: 4px;
+  border-bottom-left-radius: 4px;
+  background: rgba(255, 255, 255, 0.5);
+}
+
+.gantt-bar-handle-right {
+  right: 0;
+  border-top-right-radius: 4px;
+  border-bottom-right-radius: 4px;
+  background: rgba(255, 255, 255, 0.5);
+}
+
+/* 悬停覆盖层 */
+.gantt-hover-overlay {
+  position: absolute;
+  border: 2px solid white;
+  box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.7);
+  border-radius: 4px;
+  pointer-events: none;
+  z-index: 15; /* 在任务条之上，但在手柄之下 */
+}
+
+/* 拖拽状态 */
+.gantt-bar.dragging {
+  opacity: 0.8;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.2);
+}
+
+/* 任务信息提示框 */
+.task-tooltip {
+  position: fixed;
+  background: rgba(0, 0, 0, 0.8);
+  color: white;
+  padding: 10px;
+  border-radius: 6px;
+  font-size: 14px;
+  z-index: 9999;
+  pointer-events: none;
+  backdrop-filter: blur(4px);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+  max-width: 300px;
+  word-wrap: break-word;
+}
+
+.task-tooltip div {
+  margin: 3px 0;
+}
+
+.task-tooltip strong {
+  display: block;
+  margin-bottom: 5px;
+  color: #fff;
+}
+
+/* Chart.js 工具提示样式，确保显示在最顶层 */
+#chartjs-tooltip {
+  position: absolute;
+  z-index: 9999 !important; /* 确保工具提示在最顶层 */
+  background: rgba(0, 0, 0, 0.8);
+  color: white;
+  border-radius: 6px;
+  padding: 8px;
+  font-size: 14px;
+  pointer-events: none;
+  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.3);
+  font-family: Arial, sans-serif;
+  display: none;
+}
+
+/* Chart.js 工具提示标题 */
+.chartjs-tooltip-title {
+  margin-bottom: 4px;
+  font-weight: bold;
+  color: white;
+}
+
+/* Chart.js 工具提示主体 */
+.chartjs-tooltip-body {
+  color: white;
+}
+
+/* 确保所有甘特图相关元素都有适当的层级 */
+.gantt-container {
+  position: relative;
+  z-index: 1;
+}
+
+/* 拖拽手柄的悬停效果 */
+.gantt-bar-handle-left:hover, .gantt-bar-handle-right:hover {
+  background: rgba(255, 255, 255, 0.8);
+  transform: scaleX(1.2);
 }
 
 /* 自定义拖拽手柄样式 */
